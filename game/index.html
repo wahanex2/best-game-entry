@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gloamkeeper — hold the last light</title>
+<style>
+  :root {
+    --ink: #ece8dd;
+    --muted: #8b95a3;
+    --amber: #ffb703;
+    --amber-soft: #ffd166;
+    --teal: #8ef1e0;
+    --danger: #ff5d5d;
+    --panel: rgba(10, 16, 28, 0.88);
+    --hairline: #2a3a4d;
+    --font-ui: system-ui, -apple-system, 'Segoe UI', sans-serif;
+    --font-readout: ui-monospace, 'SF Mono', Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; height: 100%; overflow: hidden;
+    background: #04070f; color: var(--ink); font-family: var(--font-ui);
+    user-select: none;
+  }
+  #stage {
+    position: fixed; inset: 0; display: grid; place-items: center;
+    background: radial-gradient(ellipse at 50% 40%, #0a1626 0%, #04070f 70%);
+  }
+  #game-wrap {
+    position: relative;
+    width: min(100vw, calc(100vh * 16 / 9));
+    aspect-ratio: 16 / 9;
+    box-shadow: 0 0 60px rgba(0, 0, 0, 0.8);
+    border: 1px solid var(--hairline);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  canvas { display: block; width: 100%; height: 100%; background: #071423; }
+
+  #hud { position: absolute; inset: 0; pointer-events: none; font-size: 14px; }
+  .bar-box { position: absolute; left: 16px; top: 14px; width: 230px; }
+  .bar-label { display: flex; justify-content: space-between; font-size: 11px; letter-spacing: .12em; color: var(--muted); margin-bottom: 3px; }
+  .bar-label b { color: var(--ink); font-family: var(--font-readout); font-weight: 600; }
+  .bar-track { height: 9px; background: rgba(0, 0, 0, 0.55); border: 1px solid var(--hairline); border-radius: 5px; overflow: hidden; }
+  .bar-track + .bar-label { margin-top: 7px; }
+  #light-fill { height: 100%; width: 100%; background: linear-gradient(90deg, #ff8c00, var(--amber-soft)); transition: width 160ms ease; }
+  #light-fill.low { background: linear-gradient(90deg, #c22, var(--danger)); }
+  #hp-fill { height: 100%; width: 100%; background: linear-gradient(90deg, #3fae6a, #b8ff9e); transition: width 160ms ease; }
+
+  #top-center { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); text-align: center; }
+  #wave-label { font-family: var(--font-readout); font-size: 17px; letter-spacing: .18em; text-shadow: 0 1px 4px #000; }
+  #hint { margin-top: 4px; font-size: 12px; color: var(--muted); text-shadow: 0 1px 3px #000; }
+  #top-right { position: absolute; top: 14px; right: 16px; text-align: right; font-family: var(--font-readout); text-shadow: 0 1px 4px #000; }
+  #top-right .row { display: flex; gap: 16px; justify-content: flex-end; font-size: 13px; color: var(--muted); }
+  #top-right .row b { color: var(--ink); font-weight: 600; }
+  #score-value { font-size: 24px; color: var(--amber-soft); }
+  #dash-box { position: absolute; left: 16px; bottom: 14px; width: 130px; }
+  #dash-fill { height: 100%; width: 100%; background: var(--teal); transition: width 80ms linear; }
+  #mute-label { position: absolute; right: 16px; bottom: 14px; font-size: 11px; letter-spacing: .1em; color: var(--muted); }
+
+  #banner { position: absolute; left: 50%; top: 26%; transform: translate(-50%, -50%) scale(.96); text-align: center; opacity: 0; transition: opacity 200ms ease, transform 200ms ease; pointer-events: none; }
+  #banner.on { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  #banner-title { font-size: 42px; font-weight: 800; letter-spacing: .08em; text-shadow: 0 2px 16px #000; }
+  #banner-sub { font-size: 15px; color: var(--muted); text-shadow: 0 1px 6px #000; margin-top: 4px; }
+
+  .overlay { position: absolute; inset: 0; display: grid; place-items: center; padding: 20px; background: rgba(4, 7, 15, 0.72); }
+  .overlay[hidden] { display: none; }
+  .panel { width: min(520px, 94%); padding: 30px 32px; background: var(--panel); border: 1px solid var(--hairline); border-radius: 6px; text-align: center; }
+  .panel h1 { margin: 0 0 10px; font-size: 40px; line-height: 1.05; letter-spacing: .04em; }
+  .panel h1 .amber { color: var(--amber); }
+  .panel p { margin: 0 0 18px; font-size: 15px; line-height: 1.55; color: var(--muted); }
+  #overlay-stats { display: none; margin: 0 0 18px; font-family: var(--font-readout); font-size: 13px; color: var(--ink); }
+  #play { font: inherit; font-size: 17px; font-weight: 700; padding: 13px 26px; border: 1px solid var(--amber); border-radius: 8px; background: var(--amber); color: #1a1206; cursor: pointer; }
+  #play:hover { background: var(--amber-soft); border-color: var(--amber-soft); }
+  .keys { margin: 20px 0 0; padding: 0; list-style: none; display: grid; grid-template-columns: 1fr 1fr; gap: 8px 18px; font-size: 13px; color: var(--muted); text-align: left; }
+  .keys li { display: flex; align-items: center; gap: 7px; }
+  .keys kbd { min-width: 26px; padding: 2px 6px; border: 1px solid var(--hairline); border-radius: 4px; font-family: var(--font-readout); font-size: 11px; color: var(--ink); text-align: center; }
+
+  #draft { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(4, 7, 15, 0.66); }
+  #draft[hidden] { display: none; }
+  .draft-panel { width: min(640px, 94%); text-align: center; }
+  .draft-panel h2 { margin: 0 0 6px; font-size: 26px; letter-spacing: .06em; }
+  .draft-panel p { margin: 0 0 18px; color: var(--muted); font-size: 14px; }
+  #draft-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .card { display: grid; gap: 6px; justify-items: center; padding: 20px 12px 16px; background: var(--panel); border: 1px solid var(--hairline); border-radius: 6px; color: var(--ink); font: inherit; cursor: pointer; position: relative; }
+  .card:hover { border-color: var(--amber); transform: translateY(-2px); }
+  .card-key { position: absolute; top: 8px; left: 8px; font-family: var(--font-readout); font-size: 11px; color: var(--muted); border: 1px solid var(--hairline); border-radius: 4px; padding: 1px 6px; }
+  .card-icon { font-size: 30px; color: var(--amber-soft); line-height: 1; }
+  .card-name { font-size: 15px; font-weight: 700; }
+  .card-desc { font-size: 12.5px; color: var(--muted); line-height: 1.4; }
+
+  @media (prefers-reduced-motion: reduce) {
+    #banner, #light-fill, #hp-fill { transition-duration: 0.01ms; }
+  }
+</style>
+</head>
+<body>
+<div id="stage">
+  <div id="game-wrap">
+    <canvas id="game" width="960" height="540"></canvas>
+
+    <div id="hud" aria-hidden="true">
+      <div class="bar-box">
+        <div class="bar-label"><span>LIGHTHOUSE LIGHT</span><b id="light-text">120 / 120</b></div>
+        <div class="bar-track"><div id="light-fill"></div></div>
+        <div class="bar-label"><span>KEEPER</span><b id="hp-text">100</b></div>
+        <div class="bar-track"><div id="hp-fill"></div></div>
+      </div>
+      <div id="top-center">
+        <div id="wave-label">WAVE 1 / 10</div>
+        <div id="hint"></div>
+      </div>
+      <div id="top-right">
+        <div><span id="score-value">0</span></div>
+        <div class="row"><span>EMBERS <b id="ember-value">0</b></span><span>FELLED <b id="kill-value">0</b></span></div>
+      </div>
+      <div id="dash-box">
+        <div class="bar-label"><span>DASH [SPACE]</span></div>
+        <div class="bar-track"><div id="dash-fill"></div></div>
+      </div>
+      <div id="mute-label">SOUND ON [M]</div>
+    </div>
+
+    <div id="banner"><div id="banner-title"></div><div id="banner-sub"></div></div>
+
+    <div id="draft" hidden>
+      <div class="draft-panel">
+        <h2>WAVE CLEARED — CHOOSE A BOON</h2>
+        <p>The dawn is one wave closer. Take one gift from the light.</p>
+        <div id="draft-cards"></div>
+      </div>
+    </div>
+
+    <div id="overlay" class="overlay">
+      <section class="panel" role="dialog" aria-modal="true" aria-labelledby="overlay-title">
+        <h1 id="overlay-title">GLOAM<span class="amber">KEEPER</span></h1>
+        <p id="overlay-copy"></p>
+        <p id="overlay-stats"></p>
+        <button id="play" type="button">Light the lamp</button>
+        <ul class="keys">
+          <li><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> Move</li>
+          <li><kbd>Mouse</kbd> Aim</li>
+          <li><kbd>Hold click</kbd> Fire light bolts</li>
+          <li><kbd>Space</kbd> Dash (briefly untouchable)</li>
+          <li><kbd>1</kbd>–<kbd>3</kbd> Pick a boon</li>
+          <li><kbd>P</kbd> Pause</li>
+          <li><kbd>M</kbd> Sound on/off</li>
+          <li><kbd>R</kbd> Restart after the end</li>
+        </ul>
+      </section>
+    </div>
+  </div>
+</div>
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>
